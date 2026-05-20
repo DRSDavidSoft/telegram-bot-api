@@ -25,6 +25,7 @@
 #include "td/utils/common.h"
 #include "td/utils/crypto.h"
 #include "td/utils/ExitGuard.h"
+#include "td/utils/HttpUrl.h"
 //#include "td/utils/GitInfo.h"
 #include "td/utils/logging.h"
 #include "td/utils/MemoryLog.h"
@@ -189,7 +190,9 @@ int main(int argc, char *argv[]) {
   td::uint64 max_connections = 0;
   td::uint64 cpu_affinity = 0;
   td::uint64 main_thread_affinity = 0;
+  bool is_webhook_proxy_specified = false;
   bool is_proxy_port_specified = false;
+  bool has_explicit_tdlib_proxy_settings = false;
   ClientManager::TokenRange token_range{0, 1};
 
   parameters->api_id_ = [](auto x) -> td::int32 {
@@ -204,6 +207,106 @@ int main(int argc, char *argv[]) {
     }
     return td::string();
   }(std::getenv("TELEGRAM_API_HASH"));
+
+  auto get_first_environment_variable = [](std::initializer_list<const char *> names) -> td::string {
+    for (auto name : names) {
+      if (auto value = std::getenv(name); value != nullptr && value[0] != '\0') {
+        return value;
+      }
+    }
+    return td::string();
+  };
+
+  struct EnvironmentProxy final {
+    ClientParameters::ProxyType type_ = ClientParameters::ProxyType::None;
+    td::string server_;
+    td::int32 port_ = 0;
+    td::string username_;
+    td::string password_;
+  };
+
+  auto parse_environment_proxy = [](td::Slice proxy_url) -> td::Result<EnvironmentProxy> {
+    EnvironmentProxy proxy;
+    td::string normalized_proxy_url;
+    if (td::begins_with(proxy_url, "socks5://")) {
+      proxy.type_ = ClientParameters::ProxyType::Socks5;
+      normalized_proxy_url = PSTRING() << "http://" << proxy_url.substr(9);
+    } else if (td::begins_with(proxy_url, "socks5h://")) {
+      proxy.type_ = ClientParameters::ProxyType::Socks5;
+      normalized_proxy_url = PSTRING() << "http://" << proxy_url.substr(10);
+    } else if (td::begins_with(proxy_url, "http://")) {
+      proxy.type_ = ClientParameters::ProxyType::Http;
+      normalized_proxy_url = proxy_url.str();
+    } else if (td::begins_with(proxy_url, "https://")) {
+      proxy.type_ = ClientParameters::ProxyType::Http;
+      normalized_proxy_url = proxy_url.str();
+    } else {
+      return td::Status::Error("Proxy URL must use http://, https://, socks5://, or socks5h://");
+    }
+
+    TRY_RESULT(parsed_url, td::parse_url(normalized_proxy_url));
+    if (parsed_url.specified_port_ == 0) {
+      return td::Status::Error("Proxy URL must include an explicit port");
+    }
+
+    proxy.server_ = std::move(parsed_url.host_);
+    proxy.port_ = static_cast<td::int32>(parsed_url.port_);
+
+    if (!parsed_url.userinfo_.empty()) {
+      td::Slice username;
+      td::Slice password;
+      std::tie(username, password) = td::split(td::Slice(parsed_url.userinfo_), ':');
+      proxy.username_ = td::url_decode(username, false);
+      proxy.password_ = td::url_decode(password, false);
+    }
+
+    return std::move(proxy);
+  };
+
+  auto apply_environment_proxy_to_webhook = [&](td::Slice proxy_url) -> td::Status {
+    TRY_RESULT(proxy, parse_environment_proxy(proxy_url));
+    if (proxy.type_ != ClientParameters::ProxyType::Http) {
+      return td::Status::Error("Webhook proxy environment variables must use an HTTP or HTTPS proxy URL");
+    }
+    td::string host_port = proxy.server_;
+    if (td::begins_with(host_port, ":") || host_port.find(':') != td::string::npos) {
+      host_port = PSTRING() << '[' << host_port << ']';
+    }
+    host_port += PSTRING() << ':' << proxy.port_;
+    return parameters->webhook_proxy_ip_address_.init_host_port(host_port);
+  };
+
+  auto apply_environment_proxy_to_tdlib = [&](td::Slice proxy_url) -> td::Status {
+    TRY_RESULT(proxy, parse_environment_proxy(proxy_url));
+    parameters->proxy_type_ = proxy.type_;
+    parameters->proxy_server_ = std::move(proxy.server_);
+    parameters->proxy_port_ = proxy.port_;
+    parameters->proxy_username_ = std::move(proxy.username_);
+    parameters->proxy_password_ = std::move(proxy.password_);
+    parameters->proxy_secret_.clear();
+    return td::Status::OK();
+  };
+
+  auto validate_tdlib_proxy_settings = [&] {
+    auto has_proxy_settings = !parameters->proxy_server_.empty() || is_proxy_port_specified ||
+                              !parameters->proxy_username_.empty() || !parameters->proxy_password_.empty() ||
+                              !parameters->proxy_secret_.empty();
+    if (parameters->proxy_type_ == ClientParameters::ProxyType::None && has_proxy_settings) {
+      return td::Status::Error("TDLib proxy type must be specified when using proxy settings");
+    }
+    if (parameters->proxy_type_ != ClientParameters::ProxyType::None) {
+      if (parameters->proxy_server_.empty()) {
+        return td::Status::Error("Proxy server must be specified when using TDLib proxy");
+      }
+      if (parameters->proxy_port_ <= 0 || parameters->proxy_port_ > 65535) {
+        return td::Status::Error("Proxy port must be between 1 and 65535");
+      }
+      if (parameters->proxy_type_ == ClientParameters::ProxyType::Mtproto && parameters->proxy_secret_.empty()) {
+        return td::Status::Error("Proxy secret must be specified when using MTProto proxy");
+      }
+    }
+    return td::Status::OK();
+  };
 
   options.set_usage(td::Slice(argv[0]), "--api-id=<arg> --api-hash=<arg> [--local] [OPTION]...");
   options.set_description("Telegram Bot API server");
@@ -290,8 +393,10 @@ int main(int argc, char *argv[]) {
 #endif
 
   options.add_checked_option('\0', "proxy",
-                             "HTTP proxy server for outgoing webhook requests in the format http://host:port",
+                             "HTTP proxy server for outgoing webhook requests in the format http://host:port "
+                             "(defaults to HTTPS_PROXY/HTTP_PROXY if set)",
                              [&](td::Slice address) {
+                               is_webhook_proxy_specified = true;
                                if (td::begins_with(address, "http://")) {
                                  address.remove_prefix(7);
                                } else if (td::begins_with(address, "https://")) {
@@ -302,8 +407,10 @@ int main(int argc, char *argv[]) {
 
   // TDLib proxy options
   options.add_checked_option('\0', "tdlib-proxy-type",
-                             "Type of TDLib proxy (SOCKS5, HTTP, or MTPROTO)",
+                             "Type of TDLib proxy (SOCKS5, HTTP, or MTPROTO); defaults to ALL_PROXY/HTTPS_PROXY/"
+                             "HTTP_PROXY if set",
                              [&](td::Slice type) {
+                               has_explicit_tdlib_proxy_settings = true;
                                auto type_lower = td::to_lower(type.str());
                                if (type_lower == "socks5") {
                                  parameters->proxy_type_ = ClientParameters::ProxyType::Socks5;
@@ -321,26 +428,39 @@ int main(int argc, char *argv[]) {
 
   options.add_option('\0', "proxy-server",
                      "Server address of the TDLib proxy",
-                     td::OptionParser::parse_string(parameters->proxy_server_));
+                     [&](td::Slice server) {
+                       has_explicit_tdlib_proxy_settings = true;
+                       return td::OptionParser::parse_string(parameters->proxy_server_)(server);
+                     });
 
   options.add_checked_option('\0', "proxy-port",
                              "Port of the TDLib proxy",
                              [&](td::Slice port) {
+                               has_explicit_tdlib_proxy_settings = true;
                                is_proxy_port_specified = true;
                                return td::OptionParser::parse_integer(parameters->proxy_port_)(port);
                              });
 
   options.add_option('\0', "proxy-login",
                      "Username for the TDLib proxy",
-                     td::OptionParser::parse_string(parameters->proxy_username_));
+                     [&](td::Slice username_value) {
+                       has_explicit_tdlib_proxy_settings = true;
+                       return td::OptionParser::parse_string(parameters->proxy_username_)(username_value);
+                     });
 
   options.add_option('\0', "proxy-password",
                      "Password for the TDLib proxy",
-                     td::OptionParser::parse_string(parameters->proxy_password_));
+                     [&](td::Slice password_value) {
+                       has_explicit_tdlib_proxy_settings = true;
+                       return td::OptionParser::parse_string(parameters->proxy_password_)(password_value);
+                     });
 
   options.add_option('\0', "proxy-secret",
                      "Secret for the TDLib MTProto proxy",
-                     td::OptionParser::parse_string(parameters->proxy_secret_));
+                     [&](td::Slice secret) {
+                       has_explicit_tdlib_proxy_settings = true;
+                       return td::OptionParser::parse_string(parameters->proxy_secret_)(secret);
+                     });
 
   options.add_check([&] {
     if (parameters->api_id_ <= 0 || parameters->api_hash_.empty()) {
@@ -360,25 +480,7 @@ int main(int argc, char *argv[]) {
   });
 
   options.add_check([&] {
-    // Validate TDLib proxy settings
-    auto has_proxy_settings = !parameters->proxy_server_.empty() || is_proxy_port_specified ||
-                              !parameters->proxy_username_.empty() || !parameters->proxy_password_.empty() ||
-                              !parameters->proxy_secret_.empty();
-    if (parameters->proxy_type_ == ClientParameters::ProxyType::None && has_proxy_settings) {
-      return td::Status::Error("TDLib proxy type must be specified when using proxy settings");
-    }
-    if (parameters->proxy_type_ != ClientParameters::ProxyType::None) {
-      if (parameters->proxy_server_.empty()) {
-        return td::Status::Error("Proxy server must be specified when using TDLib proxy");
-      }
-      if (parameters->proxy_port_ <= 0 || parameters->proxy_port_ > 65535) {
-        return td::Status::Error("Proxy port must be between 1 and 65535");
-      }
-      if (parameters->proxy_type_ == ClientParameters::ProxyType::Mtproto && parameters->proxy_secret_.empty()) {
-        return td::Status::Error("Proxy secret must be specified when using MTProto proxy");
-      }
-    }
-    return td::Status::OK();
+    return validate_tdlib_proxy_settings();
   });
 
   auto r_non_options = options.run(argc, argv, 0);
@@ -394,6 +496,35 @@ int main(int argc, char *argv[]) {
     LOG(PLAIN) << argv[0] << ": " << r_non_options.error().message();
     LOG(PLAIN) << options;
     return 1;
+  }
+
+  if (!is_webhook_proxy_specified) {
+    auto webhook_proxy_env = get_first_environment_variable({"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"});
+    if (!webhook_proxy_env.empty() &&
+        (td::begins_with(webhook_proxy_env, "http://") || td::begins_with(webhook_proxy_env, "https://"))) {
+      auto status = apply_environment_proxy_to_webhook(webhook_proxy_env);
+      if (status.is_error()) {
+        LOG(PLAIN) << argv[0] << ": Invalid proxy URL from HTTPS_PROXY/HTTP_PROXY: " << status.message();
+        return 1;
+      }
+    }
+  }
+
+  if (!has_explicit_tdlib_proxy_settings) {
+    auto tdlib_proxy_env =
+        get_first_environment_variable({"ALL_PROXY", "all_proxy", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"});
+    if (!tdlib_proxy_env.empty()) {
+      auto status = apply_environment_proxy_to_tdlib(tdlib_proxy_env);
+      if (status.is_error()) {
+        LOG(PLAIN) << argv[0] << ": Invalid proxy URL from ALL_PROXY/HTTPS_PROXY/HTTP_PROXY: " << status.message();
+        return 1;
+      }
+      status = validate_tdlib_proxy_settings();
+      if (status.is_error()) {
+        LOG(PLAIN) << argv[0] << ": " << status.message();
+        return 1;
+      }
+    }
   }
 
   td::CombinedLog log;

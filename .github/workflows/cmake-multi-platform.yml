@@ -64,9 +64,12 @@ jobs:
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
-        git clone https://github.com/Microsoft/vcpkg.git
-        .\vcpkg\bootstrap-vcpkg.bat
+        git clone https://github.com/microsoft/vcpkg.git
+        .\vcpkg\bootstrap-vcpkg.bat -disableMetrics
+        $vcpkgRoot = (Resolve-Path .\vcpkg).Path
+        "VCPKG_ROOT=$vcpkgRoot" >> $env:GITHUB_ENV
         .\vcpkg\vcpkg.exe install gperf:x64-windows openssl:x64-windows zlib:x64-windows
+        "$vcpkgRoot\installed\x64-windows\tools\gperf" >> $env:GITHUB_PATH
 
     - name: Configure CMake (Linux)
       if: runner.os == 'Linux'
@@ -81,12 +84,15 @@ jobs:
 
     - name: Configure CMake (Windows)
       if: runner.os == 'Windows'
+      shell: pwsh
       run: >
         cmake -B ${{ steps.strings.outputs.build-output-dir }}
         -A x64
         -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
         -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
-        -DCMAKE_TOOLCHAIN_FILE:FILEPATH=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+        -DCMAKE_TOOLCHAIN_FILE:FILEPATH=${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake
+        -DGPERF_EXECUTABLE:FILEPATH=${{ env.VCPKG_ROOT }}/installed/x64-windows/tools/gperf/gperf.exe
+        -DCMAKE_INSTALL_PREFIX:PATH=${{ github.workspace }}/install
         -S ${{ github.workspace }}
 
     - name: Build
