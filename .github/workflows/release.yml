@@ -117,6 +117,33 @@ jobs:
 
       - name: Configure ARM64 package sources
         run: |
+          sudo python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          sources_dir = Path("/etc/apt/sources.list.d")
+
+          for path in sources_dir.glob("*.sources"):
+            text = path.read_text()
+            blocks = []
+            for block in text.strip().split("\n\n"):
+              lines = [line for line in block.splitlines() if not line.startswith("Architectures:")]
+              if any(line.startswith("Types:") for line in lines):
+                lines.append("Architectures: amd64")
+              blocks.append("\n".join(lines))
+            path.write_text("\n\n".join(blocks) + "\n")
+
+          for path in sources_dir.glob("*.list"):
+            lines = []
+            for line in path.read_text().splitlines():
+              stripped = line.lstrip()
+              if stripped.startswith("deb ["):
+                line = re.sub(r"arch=[^ ]+", "arch=amd64", line, count=1)
+              elif stripped.startswith("deb "):
+                line = line.replace("deb ", "deb [arch=amd64] ", 1)
+              lines.append(line)
+            path.write_text("\n".join(lines) + "\n")
+          PY
           cat <<'EOF' | sudo tee /etc/apt/sources.list.d/ubuntu-arm64.sources > /dev/null
           Types: deb
           URIs: http://ports.ubuntu.com/ubuntu-ports
