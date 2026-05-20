@@ -189,6 +189,7 @@ int main(int argc, char *argv[]) {
   td::uint64 max_connections = 0;
   td::uint64 cpu_affinity = 0;
   td::uint64 main_thread_affinity = 0;
+  bool is_proxy_port_specified = false;
   ClientManager::TokenRange token_range{0, 1};
 
   parameters->api_id_ = [](auto x) -> td::int32 {
@@ -324,7 +325,10 @@ int main(int argc, char *argv[]) {
 
   options.add_checked_option('\0', "proxy-port",
                              "Port of the TDLib proxy",
-                             td::OptionParser::parse_integer(parameters->proxy_port_));
+                             [&](td::Slice port) {
+                               is_proxy_port_specified = true;
+                               return td::OptionParser::parse_integer(parameters->proxy_port_)(port);
+                             });
 
   options.add_option('\0', "proxy-login",
                      "Username for the TDLib proxy",
@@ -347,7 +351,7 @@ int main(int argc, char *argv[]) {
 
   options.add_check([&] {
     // Validate TDLib proxy settings
-    auto has_proxy_settings = !parameters->proxy_server_.empty() || parameters->proxy_port_ != 0 ||
+    auto has_proxy_settings = !parameters->proxy_server_.empty() || is_proxy_port_specified ||
                               !parameters->proxy_username_.empty() || !parameters->proxy_password_.empty() ||
                               !parameters->proxy_secret_.empty();
     if (parameters->proxy_type_ == ClientParameters::ProxyType::None && has_proxy_settings) {
