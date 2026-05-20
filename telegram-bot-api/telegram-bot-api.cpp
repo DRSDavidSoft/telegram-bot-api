@@ -350,6 +350,16 @@ int main(int argc, char *argv[]) {
   });
 
   options.add_check([&] {
+    if (default_verbosity_level < 0) {
+      return td::Status::Error("Wrong verbosity level specified");
+    }
+    if (memory_verbosity_level < 0) {
+      return td::Status::Error("Wrong memory verbosity level specified");
+    }
+    return td::Status::OK();
+  });
+
+  options.add_check([&] {
     // Validate TDLib proxy settings
     auto has_proxy_settings = !parameters->proxy_server_.empty() || is_proxy_port_specified ||
                               !parameters->proxy_username_.empty() || !parameters->proxy_password_.empty() ||
