@@ -123,6 +123,22 @@ jobs:
 
           sources_dir = Path("/etc/apt/sources.list.d")
 
+          def rewrite_list_file(path: Path) -> None:
+            if not path.exists():
+              return
+            lines = []
+            for line in path.read_text().splitlines():
+              stripped = line.lstrip()
+              if stripped.startswith("deb ["):
+                if "arch=" in line:
+                  line = re.sub(r"arch=[^ ]+", "arch=amd64", line, count=1)
+                else:
+                  line = line.replace("[", "[arch=amd64 ", 1)
+              elif stripped.startswith("deb "):
+                line = line.replace("deb ", "deb [arch=amd64] ", 1)
+              lines.append(line)
+            path.write_text("\n".join(lines) + "\n")
+
           for path in sources_dir.glob("*.sources"):
             text = path.read_text()
             blocks = []
@@ -133,16 +149,9 @@ jobs:
               blocks.append("\n".join(lines))
             path.write_text("\n\n".join(blocks) + "\n")
 
+          rewrite_list_file(Path("/etc/apt/sources.list"))
           for path in sources_dir.glob("*.list"):
-            lines = []
-            for line in path.read_text().splitlines():
-              stripped = line.lstrip()
-              if stripped.startswith("deb ["):
-                line = re.sub(r"arch=[^ ]+", "arch=amd64", line, count=1)
-              elif stripped.startswith("deb "):
-                line = line.replace("deb ", "deb [arch=amd64] ", 1)
-              lines.append(line)
-            path.write_text("\n".join(lines) + "\n")
+            rewrite_list_file(path)
           PY
           cat <<'EOF' | sudo tee /etc/apt/sources.list.d/ubuntu-arm64.sources > /dev/null
           Types: deb
