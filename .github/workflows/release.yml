@@ -1,0 +1,196 @@
+name: Build Linux x86_64 and ARM64
+
+on:
+  push:
+    branches: [main, master]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  setup-release-info:
+    name: Setup Release Info
+    runs-on: ubuntu-22.04
+    outputs:
+      release-version: ${{ steps.version.outputs.version }}
+      release-tag-name: ${{ steps.tag.outputs.tag-name }}
+      release-title: ${{ steps.title.outputs.title }}
+      is-prerelease: ${{ steps.prerelease.outputs.prerelease }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Extract version from CMakeLists.txt
+        id: version
+        run: echo "version=$(grep -oP 'project\(TelegramBotApi VERSION \K[\d.]+' CMakeLists.txt)" >> $GITHUB_OUTPUT
+
+      - name: Determine Tag Name
+        id: tag
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            echo "tag-name=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag-name=manual-${{ github.run_number }}" >> $GITHUB_OUTPUT
+          fi
+      - name: Determine Release Title
+        id: title
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            echo "title=${{ steps.version.outputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "title=manual-${{ github.run_number }}" >> $GITHUB_OUTPUT
+          fi
+      - name: Determine Prerelease
+        id: prerelease
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+          else
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+          fi
+  build-x86_64:
+    name: Build for Linux x86_64
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ make gperf zlib1g-dev libssl-dev
+      - name: Build x86_64
+        run: |
+          mkdir -p build
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=Release ..
+          cmake --build . --target install
+      - name: Rename artifact
+        run: mv build/telegram-bot-api build/telegram-bot-api-linux-x86_64
+
+      - name: Archive artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: telegram-bot-api-x86_64
+          path: build/telegram-bot-api-linux-x86_64
+
+  build-arm64:
+    name: Build for Linux ARM64
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Install cross-compilation dependencies (x86_64)
+        run: |
+          sudo apt update
+          sudo apt install -y \
+          build-essential \
+          cmake \
+          gcc-aarch64-linux-gnu \
+          g++-aarch64-linux-gnu \
+          git \
+          gperf \
+          zlib1g-dev \
+          libssl-dev
+      
+      - name: Create build directories
+        run: |
+          mkdir -p build
+          mkdir -p build-native
+      
+      - name: Prepare for cross-compilation
+        run: |
+          cd build-native
+          cmake -DCMAKE_BUILD_TYPE=Release ..
+          cmake --build . --target prepare_cross_compiling
+      
+      - name: Add ARM64 architecture and completely replace sources
+        run: |
+          # 添加 arm64 架构
+          sudo dpkg --add-architecture arm64
+          
+          # 1. 彻底清理所有现有源配置
+          sudo rm -f /etc/apt/sources.list
+          sudo rm -rf /etc/apt/sources.list.d/*
+          
+          # 2. 为ARM64创建专用源配置（仅ports.ubuntu.com，无安全源）
+          cat > /tmp/arm64-sources.list << 'INNER_EOF'
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy main universe restricted multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-updates main universe restricted multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-backports main universe restricted multiverse
+          INNER_EOF
+          
+          # 3. 为x86_64保留必要的源（避免影响主机架构）
+          cat > /tmp/amd64-sources.list << 'INNER_EOF'
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy main universe restricted multiverse
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy-updates main universe restricted multiverse
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy-backports main universe restricted multiverse
+          deb [arch=amd64] http://security.ubuntu.com/ubuntu/ jammy-security main universe restricted multiverse
+          INNER_EOF
+          
+          # 4. 安装新的源配置
+          sudo mv /tmp/arm64-sources.list /etc/apt/sources.list.d/arm64-sources.list
+          sudo mv /tmp/amd64-sources.list /etc/apt/sources.list.d/amd64-sources.list
+          
+          # 5. 清空APT缓存
+          sudo apt clean
+          sudo rm -rf /var/lib/apt/lists/*
+      
+      - name: Update package list with cleaned sources
+        run: |
+          # 使用--allow-insecure-repositories参数忽略可能的安全警告
+          sudo apt update --allow-insecure-repositories || true
+          
+          # 安装ARM64依赖，使用--fix-missing处理可能的缺失包
+          sudo apt install -y --fix-missing \
+          zlib1g-dev:arm64 \
+          libssl-dev:arm64
+      
+      - name: Build ARM64
+        run: |
+         cd build
+         cmake \
+         -DCMAKE_BUILD_TYPE=Release \
+         -DCMAKE_SYSTEM_NAME=Linux \
+         -DCMAKE_CROSSCOMPILING=True \
+         -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+         -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+         -DCMAKE_PREFIX_PATH=/usr/lib/aarch64-linux-gnu \
+         ..
+         cmake --build .
+      
+      - name: Rename artifact
+        run: mv build/telegram-bot-api build/telegram-bot-api-linux-arm64
+
+      - name: Archive artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: telegram-bot-api-arm64
+          path: build/telegram-bot-api-linux-arm64
+
+  create-release:
+    name: Create Release
+    needs: [setup-release-info, build-x86_64, build-arm64]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ needs.setup-release-info.outputs.release-title }}
+          tag_name: ${{ needs.setup-release-info.outputs.release-tag-name }}
+          prerelease: ${{ needs.setup-release-info.outputs.is-prerelease }}
+          files: |
+            telegram-bot-api-x86_64/telegram-bot-api-linux-x86_64
+            telegram-bot-api-arm64/telegram-bot-api-linux-arm64
+          generate_release_notes: true
