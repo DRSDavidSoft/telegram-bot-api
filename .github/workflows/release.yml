@@ -111,45 +111,25 @@ jobs:
           cmake -DCMAKE_BUILD_TYPE=Release ..
           cmake --build . --target prepare_cross_compiling
       
-      - name: Add ARM64 architecture and completely replace sources
+      - name: Add ARM64 architecture
         run: |
-          # 添加 arm64 架构
           sudo dpkg --add-architecture arm64
-          
-          # 1. 彻底清理所有现有源配置
-          sudo rm -f /etc/apt/sources.list
-          sudo rm -rf /etc/apt/sources.list.d/*
-          
-          # 2. 为ARM64创建专用源配置（仅ports.ubuntu.com，无安全源）
-          cat > /tmp/arm64-sources.list << 'INNER_EOF'
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy main universe restricted multiverse
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-updates main universe restricted multiverse
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-backports main universe restricted multiverse
-          INNER_EOF
-          
-          # 3. 为x86_64保留必要的源（避免影响主机架构）
-          cat > /tmp/amd64-sources.list << 'INNER_EOF'
-          deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy main universe restricted multiverse
-          deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy-updates main universe restricted multiverse
-          deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ jammy-backports main universe restricted multiverse
-          deb [arch=amd64] http://security.ubuntu.com/ubuntu/ jammy-security main universe restricted multiverse
-          INNER_EOF
-          
-          # 4. 安装新的源配置
-          sudo mv /tmp/arm64-sources.list /etc/apt/sources.list.d/arm64-sources.list
-          sudo mv /tmp/amd64-sources.list /etc/apt/sources.list.d/amd64-sources.list
-          
-          # 5. 清空APT缓存
-          sudo apt clean
-          sudo rm -rf /var/lib/apt/lists/*
-      
-      - name: Update package list with cleaned sources
+
+      - name: Configure ARM64 package sources
         run: |
-          # 使用--allow-insecure-repositories参数忽略可能的安全警告
-          sudo apt update --allow-insecure-repositories || true
-          
-          # 安装ARM64依赖，使用--fix-missing处理可能的缺失包
-          sudo apt install -y --fix-missing \
+          cat <<'EOF' | sudo tee /etc/apt/sources.list.d/ubuntu-arm64.sources > /dev/null
+          Types: deb
+          URIs: http://ports.ubuntu.com/ubuntu-ports
+          Suites: jammy jammy-updates jammy-security jammy-backports
+          Components: main universe restricted multiverse
+          Architectures: arm64
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+          EOF
+
+      - name: Install ARM64 dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
           zlib1g-dev:arm64 \
           libssl-dev:arm64
       
