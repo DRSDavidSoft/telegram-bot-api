@@ -499,7 +499,7 @@ int main(int argc, char *argv[]) {
   }
 
   if (!is_webhook_proxy_specified) {
-    auto webhook_proxy_env = get_first_environment_variable({"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"});
+    auto webhook_proxy_env = get_first_environment_variable({"https_proxy", "HTTPS_PROXY", "http_proxy", "HTTP_PROXY"});
     if (!webhook_proxy_env.empty() &&
         (td::begins_with(webhook_proxy_env, "http://") || td::begins_with(webhook_proxy_env, "https://"))) {
       auto status = apply_environment_proxy_to_webhook(webhook_proxy_env);
@@ -512,7 +512,7 @@ int main(int argc, char *argv[]) {
 
   if (!has_explicit_tdlib_proxy_settings) {
     auto tdlib_proxy_env =
-        get_first_environment_variable({"ALL_PROXY", "all_proxy", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"});
+        get_first_environment_variable({"all_proxy", "ALL_PROXY", "https_proxy", "HTTPS_PROXY", "http_proxy", "HTTP_PROXY"});
     if (!tdlib_proxy_env.empty()) {
       auto status = apply_environment_proxy_to_tdlib(tdlib_proxy_env);
       if (status.is_error()) {
