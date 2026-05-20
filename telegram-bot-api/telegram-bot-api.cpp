@@ -311,7 +311,9 @@ int main(int argc, char *argv[]) {
                                } else if (type_lower == "mtproto") {
                                  parameters->proxy_type_ = ClientParameters::ProxyType::Mtproto;
                                } else {
-                                 return td::Status::Error("Unsupported TDLib proxy type specified");
+                                 return td::Status::Error(
+                                     "Unsupported TDLib proxy type specified; supported values are: socks5, http, "
+                                     "mtproto");
                                }
                                return td::Status::OK();
                              });
