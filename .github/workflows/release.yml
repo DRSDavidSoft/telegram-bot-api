@@ -46,10 +46,11 @@ jobs:
       - name: Determine Tag Name
         id: tag
         run: |
+          manual_tag="${{ inputs.release_tag }}"
           if [[ "${{ github.ref_type }}" == "tag" ]]; then
             echo "tag-name=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
-          elif [[ -n "${{ inputs.release_tag }}" ]]; then
-            echo "tag-name=${{ inputs.release_tag }}" >> "$GITHUB_OUTPUT"
+          elif [[ -n "$manual_tag" ]]; then
+            echo "tag-name=$manual_tag" >> "$GITHUB_OUTPUT"
           else
             echo "tag-name=manual-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
           fi
@@ -57,10 +58,11 @@ jobs:
       - name: Determine Release Title
         id: title
         run: |
+          manual_title="${{ inputs.release_title }}"
           if [[ "${{ github.ref_type }}" == "tag" ]]; then
             echo "title=${{ steps.version.outputs.version }}" >> "$GITHUB_OUTPUT"
-          elif [[ -n "${{ inputs.release_title }}" ]]; then
-            echo "title=${{ inputs.release_title }}" >> "$GITHUB_OUTPUT"
+          elif [[ -n "$manual_title" ]]; then
+            echo "title=$manual_title" >> "$GITHUB_OUTPUT"
           else
             echo "title=manual-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
           fi
