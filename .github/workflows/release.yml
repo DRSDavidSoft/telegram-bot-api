@@ -1,5 +1,8 @@
 name: Build, test, and release
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main, master]
@@ -15,6 +18,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
     outputs:
+      release-version: ${{ steps.version.outputs.version }}
       release-tag-name: ${{ steps.tag.outputs.tag-name }}
       release-title: ${{ steps.title.outputs.title }}
       is-prerelease: ${{ steps.prerelease.outputs.prerelease }}
@@ -64,18 +68,22 @@ jobs:
             os: ubuntu-22.04
             c_compiler: gcc
             cpp_compiler: g++
+            package_kind: linux
+            upload_release_artifact: true
             release_artifact_name: telegram-bot-api-x86_64
             release_artifact_path: build/telegram-bot-api-linux-x86_64
           - name: Build and test Linux x86_64 (Clang)
             os: ubuntu-22.04
             c_compiler: clang
             cpp_compiler: clang++
-            release_artifact_name: ''
-            release_artifact_path: ''
+            package_kind: none
+            upload_release_artifact: false
           - name: Build and test Windows x64
             os: windows-latest
             c_compiler: cl
             cpp_compiler: cl
+            package_kind: windows
+            upload_release_artifact: true
             release_artifact_name: telegram-bot-api-windows-x64
             release_artifact_path: build/telegram-bot-api-windows-x64.zip
 
@@ -135,18 +143,18 @@ jobs:
         run: ctest --test-dir build --build-config Release --output-on-failure
 
       - name: Package Linux x86_64 release artifact
-        if: runner.os == 'Linux' && matrix.release_artifact_name == 'telegram-bot-api-x86_64' && (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch')
+        if: matrix.package_kind == 'linux' && (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch')
         run: cp build/telegram-bot-api build/telegram-bot-api-linux-x86_64
 
       - name: Package Windows x64 release artifact
-        if: runner.os == 'Windows' && matrix.release_artifact_name == 'telegram-bot-api-windows-x64' && (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch')
+        if: matrix.package_kind == 'windows' && (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch')
         shell: pwsh
         run: |
           cmake --install build --config Release --prefix install
           Compress-Archive -Path install/bin/* -DestinationPath build/telegram-bot-api-windows-x64.zip
 
       - name: Upload release artifact
-        if: matrix.release_artifact_name != '' && (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch')
+        if: matrix.upload_release_artifact && (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch')
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.release_artifact_name }}
@@ -271,6 +279,8 @@ jobs:
     needs: [setup-release-info, build-native, build-linux-arm64]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4.1.3
