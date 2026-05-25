@@ -8731,6 +8731,30 @@ void Client::on_update_authorization_state() {
                      td::make_unique<TdOnOkCallback>());
       }
 
+      // Configure TDLib proxy if specified
+      if (parameters_->proxy_type_ != ClientParameters::ProxyType::None) {
+        auto proxy_type = [this]() -> td_api::object_ptr<td_api::ProxyType> {
+          switch (parameters_->proxy_type_) {
+            case ClientParameters::ProxyType::Socks5:
+              return make_object<td_api::proxyTypeSocks5>(parameters_->proxy_username_, parameters_->proxy_password_);
+            case ClientParameters::ProxyType::Http:
+              return make_object<td_api::proxyTypeHttp>(parameters_->proxy_username_, parameters_->proxy_password_, false);
+            case ClientParameters::ProxyType::Mtproto:
+              return make_object<td_api::proxyTypeMtproto>(parameters_->proxy_secret_);
+            default:
+              return nullptr;
+          }
+        }();
+
+        if (proxy_type != nullptr) {
+          send_request(make_object<td_api::addProxy>(
+                           make_object<td_api::proxy>(parameters_->proxy_server_, parameters_->proxy_port_,
+                                                      std::move(proxy_type)),
+                           true, td::string()),
+                       td::make_unique<TdOnOkCallback>());
+        }
+      }
+
       auto request = make_object<td_api::setTdlibParameters>();
       request->use_test_dc_ = is_test_dc_;
       request->database_directory_ = dir_;
