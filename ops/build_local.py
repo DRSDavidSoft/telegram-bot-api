@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import shutil
 import subprocess
 import time
@@ -70,6 +71,49 @@ def main():
         temporary.chmod(0o600)
         temporary.replace(args.receipt)
 
+    def run_monitored(command, log):
+        # Each command has its own process group. Stop only this owned group if
+        # the shared host loses headroom; never signal unrelated processes.
+        process = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT,
+                                   start_new_session=True)
+        previous_swap = None
+        previous_time = time.monotonic()
+        pressure_samples = 0
+        last_save = 0.0
+        try:
+            while process.poll() is None:
+                stamp = time.monotonic()
+                memory = {key: int(value.split()[0]) for key, value in
+                          (line.split(':', 1) for line in Path('/proc/meminfo').read_text().splitlines())}
+                vm = dict(line.split() for line in Path('/proc/vmstat').read_text().splitlines())
+                swap = int(vm['pswpin']) + int(vm['pswpout'])
+                rate = 0 if previous_swap is None else max(0, swap - previous_swap) * os.sysconf('SC_PAGE_SIZE') / 1024 / max(0.001, stamp - previous_time)
+                available = memory['MemAvailable']
+                monitor = receipt.setdefault('host_monitor', {'minimum_available_kib': available, 'maximum_swap_kib_s': 0, 'samples': 0})
+                monitor.update(minimum_available_kib=min(monitor['minimum_available_kib'], available),
+                               maximum_swap_kib_s=round(max(monitor['maximum_swap_kib_s'], rate), 1),
+                               samples=monitor['samples'] + 1)
+                pressured = available < 1280 * 1024 or (available < 1792 * 1024 and rate > 2048)
+                pressure_samples = pressure_samples + 1 if pressured else 0
+                if available < 768 * 1024 or pressure_samples >= 3:
+                    receipt['resource_stop'] = {'available_kib': available, 'swap_kib_s': round(rate, 1)}
+                    raise RuntimeError('Owned compilation stopped for host memory/swap pressure')
+                if stamp - last_save >= 30:
+                    save()
+                    last_save = stamp
+                previous_swap, previous_time = swap, stamp
+                time.sleep(5)
+            if process.returncode:
+                raise subprocess.CalledProcessError(process.returncode, command)
+        finally:
+            if process.poll() is None:
+                os.killpg(process.pid, signal.SIGTERM)
+                try:
+                    process.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    process.wait(timeout=5)
+
     log_path = build / 'local-build.log'
     commands = [
         ('configure', ['cmake', '-S', str(source), '-B', str(build), '-G', 'Ninja',
@@ -86,7 +130,7 @@ def main():
                 receipt['stage'] = stage
                 save()
                 log.write('\n' + now() + ' ' + stage + '\n')
-                subprocess.run(command, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
+                run_monitored(command, log)
             binary = build / 'telegram-bot-api'
             version = output([str(binary), '--version'], env=env)
             if 'Bot API ' + expected_version not in version:

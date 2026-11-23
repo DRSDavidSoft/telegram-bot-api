@@ -23,6 +23,12 @@ memory, swap activity and pressure before admission and while compiling; stop
 only this owned build if it causes harmful contention. Keep reusable objects and
 cache for a subsequent resume.
 
+The runner samples host memory and swap every five seconds. It terminates only
+its newly created compiler process group if available memory drops below768 MiB,
+or after three samples below1280 MiB / below1792 MiB with swap above2 MiB/s.
+These conservative stops preserve compiler logs and reusable objects and are
+recorded as a failed resource admission, never as a successful compilation.
+
 The runner records source/submodule/input hashes, compiler/dependency versions,
 commands, elapsed time, binary checksum and real-binary offline checks in
 `receipt.json`. Full compiler output stays in `build/local-build.log`. It checks
