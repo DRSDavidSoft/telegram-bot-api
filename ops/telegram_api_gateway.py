@@ -27,6 +27,7 @@ HOP_HEADERS = {"connection", "keep-alive", "proxy-authenticate", "proxy-authoriz
                "te", "trailer", "transfer-encoding", "upgrade", "host", "content-length"}
 MAX_BODY = 2 * 1024 * 1024 * 1024
 CHUNK = 64 * 1024
+API_IO_TIMEOUT = 600  # Preserve the existing publisher's multipart timeout.
 
 
 class Grants:
@@ -114,7 +115,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def setup(self):
         super().setup()
-        self.connection.settimeout(90)
+        self.connection.settimeout(API_IO_TIMEOUT)
         self.headers_started = False
 
     def log_message(self, *_args):
@@ -167,7 +168,7 @@ class Handler(BaseHTTPRequestHandler):
         if not 0 <= length <= MAX_BODY:
             self.reply(413, {"ok": False, "description": "Request body too large"})
             return
-        upstream = http.client.HTTPConnection("127.0.0.1", self.server.upstream_port, timeout=90)
+        upstream = http.client.HTTPConnection("127.0.0.1", self.server.upstream_port, timeout=API_IO_TIMEOUT)
         try:
             upstream.putrequest(self.command, self.path, skip_accept_encoding=True)
             for key, value in self.headers.items():

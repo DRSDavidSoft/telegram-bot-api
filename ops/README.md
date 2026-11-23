@@ -10,7 +10,8 @@ included `telegram_api_gateway.py` extends the existing Yekta loopback relay
 pattern for the local server and adds scoped file delivery. Install its unit
 and script under `/opt/telegram-bot-api/ops/`. It binds `127.0.0.1:18444`, forwards
 API requests to `127.0.0.1:8081` without environment proxies or send retries, and
-streams multipart/chunked uploads. Only a successful proxied `getFile` response
+streams multipart/chunked uploads with a 600-second I/O timeout to preserve
+existing large-attachment callers. Only a successful proxied `getFile` response
 grants access to that bot's exact relative file path, for 24 hours. Grants persist
 in a private SQLite database using hashed token keys. Traversal, cross-bot reads,
 ungranted state files and symlink escapes are refused. API paths and tokens are
