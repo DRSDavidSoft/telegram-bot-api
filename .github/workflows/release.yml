@@ -161,6 +161,29 @@ jobs:
       - name: Run tests
         run: ctest --test-dir build --build-config Release --output-on-failure
 
+      - name: Test proxy configuration and loopback startup
+        if: runner.os == 'Linux'
+        run: python3 tests/proxy_smoke.py build/telegram-bot-api
+
+      - name: Prepare verified Linux deployment artifact
+        if: matrix.package_kind == 'linux'
+        env:
+          SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          mkdir -p build/deployment
+          cp build/telegram-bot-api build/deployment/
+          printf '%s\n' "$SOURCE_COMMIT" > build/deployment/SOURCE_COMMIT
+          (cd build/deployment && sha256sum telegram-bot-api > SHA256SUMS)
+
+      - name: Upload verified Linux deployment artifact
+        if: matrix.package_kind == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-deployment
+          path: build/deployment/
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Package Linux x86_64 release artifact
         if: matrix.package_kind == 'linux' && (startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.publish_release))
         run: cp build/telegram-bot-api build/telegram-bot-api-linux-x86_64

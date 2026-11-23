@@ -3,3 +3,6 @@
 **/.DS_Store
 bin/
 vcpkg/
+*.env
+*.env.*
+__pycache__/

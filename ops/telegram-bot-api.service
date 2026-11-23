@@ -1,0 +1,33 @@
+[Unit]
+Description=Telegram Bot API server with explicit local proxy
+After=network-online.target privoxy.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=telegram-bot-api
+Group=telegram-bot-api
+EnvironmentFile=/etc/telegram-bot-api/server.env
+UnsetEnvironment=HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
+ExecStart=/opt/telegram-bot-api/bin/telegram-bot-api --http-ip-address=127.0.0.1 --http-port=8081 --dir=/var/lib/telegram-bot-api --temp-dir=/var/lib/telegram-bot-api/tmp --tdlib-proxy-type=http --proxy-server=127.0.0.1 --proxy-port=8118 --verbosity=0 --memory-verbosity=0
+WorkingDirectory=/var/lib/telegram-bot-api
+StateDirectory=telegram-bot-api
+StateDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=60
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+MemoryMax=2G
+TasksMax=128
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target
