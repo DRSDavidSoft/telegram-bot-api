@@ -1,0 +1,16 @@
+name: Test loopback gateway
+on:
+  push:
+    branches: [master, main, 'ops/**']
+    paths: ['ops/**', 'tests/test_gateway.py', '.github/workflows/gateway.yml']
+  pull_request:
+    paths: ['ops/**', 'tests/test_gateway.py', '.github/workflows/gateway.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  gateway:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s tests -p test_gateway.py -v

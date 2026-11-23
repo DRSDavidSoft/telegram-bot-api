@@ -5,6 +5,19 @@ Build and test the maintained fork with its pinned TDLib submodule. CI publishes
 builds. Verify the artifact's run, head commit, and checksum before installing.
 The existing release publishing inputs and cross-platform builds are preserved.
 
+The raw server does not serve `/file/botTOKEN/...` downloads used by n8n. The
+included `telegram_api_gateway.py` extends the existing Yekta loopback relay
+pattern for the local server and adds scoped file delivery. Install its unit
+and script under `/opt/telegram-bot-api/ops/`. It binds `127.0.0.1:18444`, forwards
+API requests to `127.0.0.1:8081` without environment proxies or send retries, and
+streams multipart/chunked uploads. Only a successful proxied `getFile` response
+grants access to that bot's exact relative file path, for 24 hours. Grants persist
+in a private SQLite database using hashed token keys. Traversal, cross-bot reads,
+ungranted state files and symlink escapes are refused. API paths and tokens are
+never logged. Run `python3 -m unittest discover -s tests -p test_gateway.py -v`
+on Linux before installation. n8n and other compatible clients should use the
+gateway origin as their API base, not the raw server port.
+
 Install the verified executable at `/opt/telegram-bot-api/bin/telegram-bot-api`
 and the example unit as `telegram-bot-api.service`. Create the dedicated system
 user and state directory first. Store only `TELEGRAM_API_ID` and
@@ -15,6 +28,12 @@ The unit binds only loopback, avoids verbose token-bearing logs and core dumps,
 and explicitly selects the existing local HTTP CONNECT proxy. It clears ambient
 proxy variables so webhook delivery does not accidentally inherit the egress
 proxy. Adapt the proxy port to the actual deployment.
+
+If the existing HTTPS webhook hostname resolves to loopback locally, preserve
+standard mode and pin `setWebhook.ip_address` to its verified public ingress/CDN
+address. Verify that exact route from the server first, and retain the unchanged
+hostname, certificate validation, secret, allowed updates and pending updates.
+Do not enable local mode merely to bypass the reserved-address check.
 
 This replaces the HTTP Bot API endpoint, not Telegram's underlying network.
 Start with standard mode: `--local` changes `getFile` to return absolute file
