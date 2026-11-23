@@ -1,0 +1,30 @@
+[Unit]
+Description=Loopback Telegram Bot API and scoped file gateway
+After=telegram-bot-api.service
+Requires=telegram-bot-api.service
+
+[Service]
+Type=simple
+User=telegram-bot-api
+Group=telegram-bot-api
+ExecStart=/usr/bin/python3 /opt/telegram-bot-api/ops/telegram_api_gateway.py
+WorkingDirectory=/var/lib/telegram-bot-api
+ReadWritePaths=/var/lib/telegram-bot-api
+UMask=0077
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+MemoryMax=256M
+TasksMax=80
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target
