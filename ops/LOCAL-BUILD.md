@@ -24,8 +24,8 @@ only this owned build if it causes harmful contention. Keep reusable objects and
 cache for a subsequent resume.
 
 The runner samples host memory and swap every five seconds. It terminates only
-its newly created compiler process group if available memory drops below768 MiB,
-or after three samples below1280 MiB / below1792 MiB with swap above2 MiB/s.
+its newly created compiler process group if available memory drops below 768 MiB,
+or after three samples below 1280 MiB / below 1792 MiB with swap above 2 MiB/s.
 These conservative stops preserve compiler logs and reusable objects and are
 recorded as a failed resource admission, never as a successful compilation.
 
@@ -38,3 +38,20 @@ the build, and no provider or deployment action is performed by the runner.
 Review the actual receipt before promoting a local artifact. Different compiler
 and system-library versions can legitimately produce a different checksum from
 the CI artifact; source identity and verification are recorded separately.
+
+## Verified local build
+
+The Office Release build completed on 2026-11-23 at 17:26:50 UTC, using source
+`104bca1db1d749c380c30a8e0025bfe2f891e132` and TDLib
+`f10611ee1f03f91ddae8185483a1ccfd3d664668`. Clang 21.1.8, CMake 4.2.3 and
+Ninja 1.13.2 produced Bot API 10.5 in 7079.317 seconds with one build job.
+The 46,342,816-byte executable has SHA-256
+`88336207a5f04c3f091eaa135339313f526c1b6f8d00e64022289e6f83e130b1`.
+
+The version and linked-library checks passed, followed by eight configuration
+rejection cases and two isolated loopback startups. The source remained clean.
+The completed unit exited successfully, with a 1,402,634,240-byte memory peak
+and zero swap use. The binary checksum, source and retained completion journal
+were independently checked on 2026-11-25. Existing objects and ccache were kept;
+no duplicate build was needed. This verification did not activate a production
+bot, change an endpoint or include any application credentials.

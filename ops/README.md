@@ -5,6 +5,10 @@ Build and test the maintained fork with its pinned TDLib submodule. CI publishes
 builds. Verify the artifact's run, head commit, and checksum before installing.
 The existing release publishing inputs and cross-platform builds are preserved.
 
+For an offline build on the deployment host, use the bounded single-job
+[local C++ build recipe](LOCAL-BUILD.md). It records the pinned source, toolchain,
+binary checksum and real-binary checks without starting production bot traffic.
+
 The raw server does not serve `/file/botTOKEN/...` downloads used by n8n. The
 included `telegram_api_gateway.py` extends the existing Yekta loopback relay
 pattern for the local server and adds scoped file delivery. Install its unit
