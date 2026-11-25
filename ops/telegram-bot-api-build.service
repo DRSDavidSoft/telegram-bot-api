@@ -1,0 +1,37 @@
+[Unit]
+Description=Bounded offline Telegram Bot API local C++ build
+
+[Service]
+Type=exec
+User=telegram-bot-api-build
+Group=telegram-bot-api-build
+WorkingDirectory=/var/lib/telegram-bot-api-build
+Environment=HOME=/var/lib/telegram-bot-api-build LANG=C.UTF-8 PATH=/usr/bin:/bin
+ExecStart=/usr/bin/python3 /opt/telegram-bot-api/ops/build_local.py --source=/var/lib/telegram-bot-api-build/source --build=/var/lib/telegram-bot-api-build/build --cache=/var/lib/telegram-bot-api-build/ccache --receipt=/var/lib/telegram-bot-api-build/receipt.json
+Restart=no
+RuntimeMaxSec=3h
+TimeoutStopSec=20
+KillMode=control-group
+OOMPolicy=stop
+OOMScoreAdjust=500
+Nice=15
+CPUQuota=100%
+CPUWeight=10
+IOWeight=10
+IOSchedulingClass=idle
+MemoryHigh=3G
+MemoryMax=4G
+MemorySwapMax=0
+TasksMax=128
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateNetwork=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadWritePaths=/var/lib/telegram-bot-api-build
+LimitCORE=0
